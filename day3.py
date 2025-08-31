@@ -1,26 +1,42 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from database import engine, Base, SessionLocal
+from models import Expense
 from pydantic import BaseModel
+from typing import List
 
-# Create FastAPI app
+Base.metadata.create_all(bind=engine)
+
 app = FastAPI()
 
-# Define a Pydantic model for POST request data
-class Item(BaseModel):
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+class ExpenseCreate(BaseModel):
     name: str
-    price: float
-    quantity: int
+    amount: float
+    category: str
+    date: str
 
-# Simple GET route
-@app.get("/hello")
-def read_hello(name: str = Query("World", description="Who do you want to greet?")):
-    return {"message": f"Hello, {name}!"}
+class ExpenseResponse(ExpenseCreate):
+    id: int
 
-# GET with path parameter
-@app.get("/items/{item_id}")
-def read_item(item_id: int):
-    return {"item_id": item_id, "description": "Details about this item"}
+    class Config:
+        orm_mode = True
 
-# POST route that accepts JSON
-@app.post("/items/")
-def create_item(item: Item):
-    return {"message": "Item received", "item": item}
+@app.post("/expenses/", response_model=ExpenseResponse)
+def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
+    db_expense = Expense(**expense.dict())
+    db.add(db_expense)
+    db.commit()
+    db.refresh(db_expense)
+    return db_expense
+
+@app.get("/expenses/", response_model=List[ExpenseResponse])
+def read_expenses(db: Session = Depends(get_db)):
+    return db.query(Expense).all()
